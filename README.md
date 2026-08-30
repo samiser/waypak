@@ -31,6 +31,7 @@ waypak.apps = {
 ```
 
 dbus policies (`talk`/`own`) default from `profiles/` by app name. PRs welcome!
+
 `waypak.profiles` swaps or extends the bundled set (`{ }` to opt out entirely)
 
 ad-hoc:
@@ -43,8 +44,8 @@ waypak wayland-info       # security context only, no bwrap
 
 ## caveats
 
-- network is shared by default (`net = false` to unshare); gpu and audio are
-  opt-in per app; /etc is cherry-picked, not bound wholesale
+- network is shared by default (`net = false` to unshare), gpu and audio are
+  opt-in per app, /etc is cherry-picked (not bound directly)
 - no document portal yet: file pickers show host files but only bound paths work
   inside
 - protects against sloppy apps and their plugin/content ecosystems, not targeted
