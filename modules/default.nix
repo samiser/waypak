@@ -9,7 +9,7 @@ let
   cfg = config.waypak;
   way-secure = pkgs.way-secure or (pkgs.callPackage ../pkgs/way-secure.nix { });
 
-  wlrun = import ../lib/wlrun.nix {
+  waypak = import ../lib/cli.nix {
     inherit pkgs way-secure;
     inherit (cfg) engine defaultPolicy;
     apps = cfg.apps;
@@ -28,7 +28,7 @@ let
           rm "$bin"
           cat > "$bin" <<EOF
         #!${pkgs.runtimeShell}
-        exec ${wlrun}/bin/wlrun -s -a ${name} "$target" "\$@"
+        exec ${waypak}/bin/waypak -s -a ${name} "$target" "\$@"
         EOF
           chmod +x "$bin"
         done
@@ -120,11 +120,11 @@ in
         };
       };
       default = { };
-      description = "dbus policy for ad-hoc `wlrun -s` runs without an `apps` entry; empty = deny all";
+      description = "dbus policy for ad-hoc `waypak -s` runs without an `apps` entry; empty = deny all";
     };
   };
 
   config = lib.mkIf (cfg.apps != { }) {
-    environment.systemPackages = [ wlrun ] ++ lib.mapAttrsToList wrapApp cfg.apps;
+    environment.systemPackages = [ waypak ] ++ lib.mapAttrsToList wrapApp cfg.apps;
   };
 }

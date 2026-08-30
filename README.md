@@ -35,9 +35,9 @@ dbus policies (`talk`/`own`) default from `profiles/` by app name, PRs welcome
 ad-hoc:
 
 ```bash
-wlrun -s some-app        # sandbox with default policy
-wlrun -a spotify -s cmd  # sandbox with spotify's policy
-wlrun wayland-info       # security context only, no bwrap
+waypak -s some-app        # sandbox with default policy
+waypak -a spotify -s cmd  # sandbox with spotify's policy
+waypak wayland-info       # security context only, no bwrap
 ```
 
 ## caveats

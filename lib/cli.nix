@@ -1,4 +1,4 @@
-# builds the wlrun launcher with the given policies baked in
+# builds the waypak launcher with the given policies baked in
 {
   pkgs,
   way-secure,
@@ -24,7 +24,7 @@ let
   '';
   policyCases = lib.concatStrings (lib.mapAttrsToList mkCase apps);
 in
-pkgs.writeShellScriptBin "wlrun" ''
+pkgs.writeShellScriptBin "waypak" ''
   set -eu
   app_id=""
   sandbox=""
@@ -36,13 +36,13 @@ pkgs.writeShellScriptBin "wlrun" ''
     esac
   done
   if [ $# -lt 1 ]; then
-    echo "usage: wlrun [-a app-id] [-s] <command...>" >&2
+    echo "usage: waypak [-a app-id] [-s] <command...>" >&2
     exit 1
   fi
   [ -n "$app_id" ] || app_id=''${1##*/}
 
-  sock="$XDG_RUNTIME_DIR/wlrun-$app_id-$$"
-  bus_proxy="$XDG_RUNTIME_DIR/wlrun-bus-$app_id-$$"
+  sock="$XDG_RUNTIME_DIR/waypak-$app_id-$$"
+  bus_proxy="$XDG_RUNTIME_DIR/waypak-bus-$app_id-$$"
   fifo=$(${pkgs.coreutils}/bin/mktemp -u)
   ${pkgs.coreutils}/bin/mkfifo "$fifo"
 
@@ -72,7 +72,7 @@ pkgs.writeShellScriptBin "wlrun" ''
   # readiness: way-secure writes to fd 3 once the context is committed
   read -r _ < "$fifo" || true
   kill -0 "$ws_pid" 2>/dev/null || {
-    echo "wlrun: way-secure failed" >&2
+    echo "waypak: way-secure failed" >&2
     exit 1
   }
 
@@ -100,11 +100,11 @@ pkgs.writeShellScriptBin "wlrun" ''
   rm -f "$fifo2"
   read -r -N1 -u4 _ || true
   kill -0 "$proxy_pid" 2>/dev/null || {
-    echo "wlrun: xdg-dbus-proxy failed" >&2
+    echo "waypak: xdg-dbus-proxy failed" >&2
     exit 1
   }
 
-  app_home="$HOME/.local/share/wlrun/$app_id"
+  app_home="$HOME/.local/share/waypak/$app_id"
   # /tmp persists per app: chromium's single-instance socket lives there,
   # and a fresh tmpfs each launch makes concurrent launches corrupt the profile
   mkdir -p "$app_home" "$app_home/.tmp"

@@ -22,14 +22,14 @@
 
       packages = forAllSystems (pkgs: rec {
         way-secure = waySecure pkgs;
-        wlrun = import ./lib/wlrun.nix {
+        waypak = import ./lib/cli.nix {
           inherit pkgs;
           way-secure = waySecure pkgs;
           engine = "waypak";
           apps = self.policies;
           defaultPolicy = { };
         };
-        default = wlrun;
+        default = waypak;
       });
     };
 }
