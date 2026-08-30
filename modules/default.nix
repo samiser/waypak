@@ -45,7 +45,7 @@ let
   policyOptions =
     name:
     let
-      profile = policies.${name} or { };
+      profile = cfg.profiles.${name} or { };
     in
     {
       talk = lib.mkOption {
@@ -81,6 +81,12 @@ in
       type = lib.types.str;
       default = "waypak";
       description = "sandbox engine id reported to the compositor via security-context-v1";
+    };
+
+    profiles = lib.mkOption {
+      type = lib.types.attrsOf lib.types.attrs;
+      default = policies;
+      description = "policy defaults applied to `apps` by name; waypak's bundled profiles unless overridden";
     };
 
     apps = lib.mkOption {

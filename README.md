@@ -30,7 +30,8 @@ waypak.apps = {
 };
 ```
 
-dbus policies (`talk`/`own`) default from `profiles/` by app name, PRs welcome
+dbus policies (`talk`/`own`) default from `profiles/` by app name. PRs welcome!
+`waypak.profiles` swaps or extends the bundled set (`{ }` to opt out entirely)
 
 ad-hoc:
 
