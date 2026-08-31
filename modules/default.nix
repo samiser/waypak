@@ -73,6 +73,11 @@ let
         default = profile.audio or false;
         description = "expose pipewire and pulse sockets";
       };
+      waylandGlobals = lib.mkOption {
+        type = lib.types.listOf lib.types.str;
+        default = profile.waylandGlobals or [ ];
+        description = "privileged wayland globals the compositor should still offer this app";
+      };
     };
 in
 {
@@ -110,6 +115,19 @@ in
       );
       default = { };
       description = "apps installed sandboxed (security context + bwrap + filtered dbus); dbus policy defaults come from waypak's bundled profiles when the name matches";
+    };
+
+    securityContextRules = lib.mkOption {
+      type = lib.types.listOf lib.types.attrs;
+      readOnly = true;
+      default = lib.mapAttrsToList (name: app: {
+        match = {
+          sandbox_engine = lib.escapeRegex cfg.engine;
+          app_id = lib.escapeRegex name;
+        };
+        allow_globals = app.waylandGlobals;
+      }) (lib.filterAttrs (_: app: app.waylandGlobals != [ ]) cfg.apps);
+      description = "umbriel `[[security_context_rule]]` entries for apps with `waylandGlobals`";
     };
 
     defaultPolicy = lib.mkOption {
