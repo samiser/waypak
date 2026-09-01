@@ -109,6 +109,11 @@ in
                 default = [ ];
                 description = "extra paths bind-mounted read-write into the sandbox; shell vars expand at launch";
               };
+              roBinds = lib.mkOption {
+                type = lib.types.listOf lib.types.str;
+                default = [ ];
+                description = "extra paths bind-mounted read-only into the sandbox; missing paths are skipped";
+              };
             };
           }
         )

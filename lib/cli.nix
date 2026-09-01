@@ -14,12 +14,16 @@ let
       map (n: "--talk=${n}") (policy.talk or [ ]) ++ map (n: "--own=${n}") (policy.own or [ ])
     );
   mkBinds = app: lib.concatMapStringsSep " " (p: ''--bind "${p}" "${p}"'') (app.binds or [ ]);
+  mkRoBinds = app: lib.concatMapStringsSep " " (p: ''--ro-bind-try "${p}" "${p}"'') (app.roBinds or [ ]);
+  usesPortal = app: lib.elem "org.freedesktop.portal.Desktop" (app.talk or [ ]);
   flag = v: if v then "1" else "";
   mkCase = name: app: ''
     ${name})
       dbus_filter="${mkFilter app}"
       extra_binds=(${mkBinds app})
+      ro_binds=(${mkRoBinds app})
       net=${flag (app.net or true)} gpu=${flag (app.gpu or false)} audio=${flag (app.audio or false)}
+      portal=${flag (usesPortal app)}
       ;;
   '';
   policyCases = lib.concatStrings (lib.mapAttrsToList mkCase apps);
@@ -85,8 +89,8 @@ pkgs.writeShellScriptBin "waypak" ''
   case $app_id in
     ${policyCases}*)
       dbus_filter="${mkFilter defaultPolicy}"
-      extra_binds=()
-      net=1 gpu="" audio=""
+      extra_binds=() ro_binds=()
+      net=1 gpu="" audio="" portal=${flag (usesPortal defaultPolicy)}
       ;;
   esac
   # the proxy exits when its --fd closes, so hold fd 4 for the app's lifetime
@@ -158,6 +162,11 @@ pkgs.writeShellScriptBin "waypak" ''
   for ((i = 1; i < ''${#extra_binds[@]}; i += 3)); do
     mkdir -p "''${extra_binds[i]}"
   done
-  opts+=( "''${extra_binds[@]}" )
+  opts+=( "''${extra_binds[@]}" "''${ro_binds[@]}" )
+  # xdg-open shim routes urls through the OpenURI portal so they open on the
+  # host; GTK_USE_PORTAL makes gtk/electron file pickers use the host chooser
+  if [ -n "$portal" ]; then
+    opts+=( --setenv PATH "${pkgs.flatpak-xdg-utils}/bin:$PATH" --setenv GTK_USE_PORTAL 1 )
+  fi
   run_and_wait ${pkgs.bubblewrap}/bin/bwrap "''${opts[@]}" "$@"
 ''

@@ -21,6 +21,11 @@
     gpu = true; # screenshare needs dmabuf import
   };
 
+  clipse = {
+    net = false;
+    waylandGlobals = [ "ext_data_control_manager_v1" ];
+  };
+
   obsidian = {
     talk = [
       "org.freedesktop.Notifications"

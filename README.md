@@ -8,7 +8,8 @@ normally runs them sandboxed:
 
 - the compositor withholds privileged wayland protocols (capture, window
   enumeration, input injection, ...)
-- dbus goes through xdg-dbus-proxy with a per-app allowlist, portals still work
+- dbus goes through xdg-dbus-proxy with a per-app allowlist; apps allowed to
+  talk to the portal get host file pickers and open links in the host browser
 - bwrap gives each app a private persistent home plus whatever paths you bind
 
 ## requirements
@@ -26,6 +27,11 @@ waypak.apps = {
   obsidian = {
     package = pkgs.obsidian;
     binds = [ "$HOME/notes" ];
+  };
+  vesktop = {
+    package = pkgs.vesktop;
+    binds = [ "$HOME/Downloads" ];
+    roBinds = [ "$HOME/Pictures" ];
   };
 };
 ```
