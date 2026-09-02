@@ -24,6 +24,11 @@
   clipse = {
     net = false;
     waylandGlobals = [ "ext_data_control_manager_v1" ];
+    # clipse -listen daemonises, which dies with the sandbox's pid namespace
+    commands.listener = {
+      cmd = "wl-paste --type text --watch clipse --wl-store & wl-paste --type image/png --watch clipse --wl-store & wait";
+      deps = [ "wl-clipboard" ];
+    };
   };
 
   obsidian = {

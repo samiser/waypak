@@ -20,6 +20,7 @@ let
   mkCase = name: app: ''
     ${name})
       dbus_filter="${mkFilter app}"
+      app_path="${lib.optionalString (app ? package) "${app.package}/bin"}"
       extra_binds=(${mkBinds app})
       ro_binds=(${mkRoBinds app})
       net=${flag (app.net or true)} gpu=${flag (app.gpu or false)} audio=${flag (app.audio or false)}
@@ -89,7 +90,7 @@ pkgs.writeShellScriptBin "waypak" ''
   case $app_id in
     ${policyCases}*)
       dbus_filter="${mkFilter defaultPolicy}"
-      extra_binds=() ro_binds=()
+      app_path="" extra_binds=() ro_binds=()
       net=1 gpu="" audio="" portal=${flag (usesPortal defaultPolicy)}
       ;;
   esac
@@ -163,10 +164,15 @@ pkgs.writeShellScriptBin "waypak" ''
     mkdir -p "''${extra_binds[i]}"
   done
   opts+=( "''${extra_binds[@]}" "''${ro_binds[@]}" )
-  # xdg-open shim routes urls through the OpenURI portal so they open on the
-  # host; GTK_USE_PORTAL makes gtk/electron file pickers use the host chooser
+  # app_path makes in-sandbox self-invocation hit the raw binary instead of
+  # re-entering the wrapper; the xdg-open shim routes urls through the OpenURI
+  # portal so they open on the host; GTK_USE_PORTAL gives host file pickers
+  path=$PATH
   if [ -n "$portal" ]; then
-    opts+=( --setenv PATH "${pkgs.flatpak-xdg-utils}/bin:$PATH" --setenv GTK_USE_PORTAL 1 )
+    path="${pkgs.flatpak-xdg-utils}/bin:$path"
+    opts+=( --setenv GTK_USE_PORTAL 1 )
   fi
+  [ -n "$app_path" ] && path="$app_path:$path"
+  opts+=( --setenv PATH "$path" )
   run_and_wait ${pkgs.bubblewrap}/bin/bwrap "''${opts[@]}" "$@"
 ''

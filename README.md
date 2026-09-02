@@ -36,7 +36,9 @@ waypak.apps = {
 };
 ```
 
-dbus policies (`talk`/`own`) default from `profiles/` by app name. PRs welcome!
+dbus policies (`talk`/`own`) default from `profiles/` by app name, as do
+`commands` — extra entrypoints run inside the app's sandbox (e.g. clipse ships
+a `clipse-listener` bin for clipboard watching). PRs welcome!
 
 `waypak.profiles` swaps or extends the bundled set (`{ }` to opt out entirely)
 

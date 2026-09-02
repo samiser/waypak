@@ -15,6 +15,18 @@ let
     apps = cfg.apps;
   };
 
+  # extra entrypoints run inside an app's sandbox; deps are package names
+  # resolved here so the generated bin is self-contained
+  mkCommands =
+    name: app:
+    lib.mapAttrsToList (
+      cname: c:
+      pkgs.writeShellScriptBin "${name}-${cname}" ''
+        export PATH=${lib.makeBinPath (map (d: pkgs.${d}) c.deps)}:$PATH
+        exec ${waypak}/bin/waypak -a ${name} -s ${pkgs.runtimeShell} -c ${lib.escapeShellArg c.cmd}
+      ''
+    ) app.commands;
+
   # replace each binary with a wrapper launching it through the sandbox;
   # desktop files pointing at the original store path are rewritten
   wrapApp =
@@ -77,6 +89,25 @@ let
         type = lib.types.listOf lib.types.str;
         default = profile.waylandGlobals or [ ];
         description = "privileged wayland globals the compositor should still offer this app";
+      };
+      commands = lib.mkOption {
+        type = lib.types.attrsOf (
+          lib.types.submodule {
+            options = {
+              cmd = lib.mkOption {
+                type = lib.types.str;
+                description = "shell command run inside the app's sandbox; must stay in the foreground";
+              };
+              deps = lib.mkOption {
+                type = lib.types.listOf lib.types.str;
+                default = [ ];
+                description = "package names put on the command's PATH";
+              };
+            };
+          }
+        );
+        default = profile.commands or { };
+        description = "extra entrypoints installed as `<app>-<name>` bins";
       };
     };
 in
@@ -154,6 +185,9 @@ in
   };
 
   config = lib.mkIf (cfg.apps != { }) {
-    environment.systemPackages = [ waypak ] ++ lib.mapAttrsToList wrapApp cfg.apps;
+    environment.systemPackages =
+      [ waypak ]
+      ++ lib.mapAttrsToList wrapApp cfg.apps
+      ++ lib.concatLists (lib.mapAttrsToList mkCommands cfg.apps);
   };
 }
