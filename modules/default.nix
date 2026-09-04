@@ -71,9 +71,24 @@ let
         description = "session bus names the app may claim";
       };
       net = lib.mkOption {
-        type = lib.types.bool;
+        type = lib.types.either lib.types.bool (lib.types.enum [ "isolated" ]);
         default = profile.net or true;
-        description = "share the network namespace";
+        description = "true shares the host network namespace, false unshares it, \"isolated\" is a private namespace with internet via pasta (localhost and abstract sockets unreachable)";
+      };
+      seccomp = lib.mkOption {
+        type = lib.types.bool;
+        default = profile.seccomp or true;
+        description = "apply the default seccomp filter (flatpak's baseline: tty ioctl injection, ptrace, kernel keyring, mount family)";
+      };
+      userns = lib.mkOption {
+        type = lib.types.bool;
+        default = profile.userns or true;
+        description = "allow nested user namespaces; chromium/electron sandboxes need them, disable for everything else";
+      };
+      storeClosure = lib.mkOption {
+        type = lib.types.bool;
+        default = profile.storeClosure or false;
+        description = "bind only the app's closure instead of /nix and /run/current-system";
       };
       gpu = lib.mkOption {
         type = lib.types.bool;

@@ -8,6 +8,7 @@
 }:
 let
   lib = pkgs.lib;
+  seccompFilters = pkgs.callPackage ../pkgs/seccomp-filters.nix { };
   mkFilter =
     policy:
     lib.concatStringsSep " " (
@@ -17,14 +18,46 @@ let
   mkRoBinds = app: lib.concatMapStringsSep " " (p: ''--ro-bind-try "${p}" "${p}"'') (app.roBinds or [ ]);
   usesPortal = app: lib.elem "org.freedesktop.portal.Desktop" (app.talk or [ ]);
   flag = v: if v then "1" else "";
+  # net is true (share), false (none) or "isolated" (private ns, internet via pasta)
+  netVal =
+    app:
+    let
+      v = app.net or true;
+    in
+    if v == true then
+      "1"
+    else if v == false then
+      ""
+    else
+      v;
+  seccompFile =
+    app:
+    lib.optionalString (app.seccomp or true) (
+      if app.userns or true then "${seccompFilters}/default.bpf" else "${seccompFilters}/no-userns.bpf"
+    );
+  # bash/coreutils are always included: commands run through runtimeShell and
+  # apps shelling out to sh/env is common
+  closureFile =
+    app:
+    lib.optionalString ((app ? package) && (app.storeClosure or false)) (pkgs.writeClosure (
+      [
+        app.package
+        pkgs.bash
+        pkgs.coreutils
+      ]
+      ++ map (d: pkgs.${d}) (lib.concatMap (c: c.deps) (lib.attrValues (app.commands or { })))
+      ++ lib.optional (usesPortal app) pkgs.flatpak-xdg-utils
+    ));
   mkCase = name: app: ''
     ${name})
       dbus_filter="${mkFilter app}"
       app_path="${lib.optionalString (app ? package) "${app.package}/bin"}"
       extra_binds=(${mkBinds app})
       ro_binds=(${mkRoBinds app})
-      net=${flag (app.net or true)} gpu=${flag (app.gpu or false)} audio=${flag (app.audio or false)}
+      net="${netVal app}" gpu=${flag (app.gpu or false)} audio=${flag (app.audio or false)}
       portal=${flag (usesPortal app)}
+      seccomp_file="${seccompFile app}"
+      closure_file="${closureFile app}"
       ;;
   '';
   policyCases = lib.concatStrings (lib.mapAttrsToList mkCase apps);
@@ -56,6 +89,7 @@ pkgs.writeShellScriptBin "waypak" ''
     [ -n "''${ws_pid:-}" ] && kill "$ws_pid" 2>/dev/null || true
     [ -n "''${proxy_pid:-}" ] && kill "$proxy_pid" 2>/dev/null || true
     rm -f "$sock" "$bus_proxy" "$fifo"
+    [ -n "''${info_fifo:-}" ] && rm -f "$info_fifo" "$block_fifo" || true
   }
   trap cleanup EXIT INT TERM
   # run the app in the background and wait: a foreground child would block
@@ -92,6 +126,8 @@ pkgs.writeShellScriptBin "waypak" ''
       dbus_filter="${mkFilter defaultPolicy}"
       app_path="" extra_binds=() ro_binds=()
       net=1 gpu="" audio="" portal=${flag (usesPortal defaultPolicy)}
+      seccomp_file="${seccompFilters}/default.bpf"
+      closure_file=""
       ;;
   esac
   # the proxy exits when its --fd closes, so hold fd 4 for the app's lifetime
@@ -116,8 +152,6 @@ pkgs.writeShellScriptBin "waypak" ''
   opts=(
     --unshare-all --die-with-parent
     --proc /proc --dev /dev --bind "$app_home/.tmp" /tmp
-    --ro-bind /nix /nix
-    --ro-bind /run/current-system /run/current-system
     --tmpfs "$XDG_RUNTIME_DIR"
     --bind "$sock" "$XDG_RUNTIME_DIR/wayland-0"
     --bind "$bus_proxy" "$XDG_RUNTIME_DIR/bus"
@@ -127,16 +161,34 @@ pkgs.writeShellScriptBin "waypak" ''
     --setenv DBUS_SESSION_BUS_ADDRESS "unix:path=$XDG_RUNTIME_DIR/bus"
     --unsetenv DISPLAY --unsetenv UMBRIEL_SOCKET
   )
+  # a closure file limits the store to the app's own paths; otherwise the
+  # whole store plus the system profile are visible and host PATH keeps working
+  if [ -n "$closure_file" ]; then
+    path="${lib.makeBinPath [ pkgs.bash pkgs.coreutils ]}"
+    while IFS= read -r p; do
+      opts+=( --ro-bind "$p" "$p" )
+    done < "$closure_file"
+  else
+    path=$PATH
+    opts+=( --ro-bind /nix /nix --ro-bind /run/current-system /run/current-system )
+  fi
   # /etc is cherry-picked, not bound wholesale; /etc/static backs the
   # nixos symlinks
   for f in static nsswitch.conf passwd group machine-id localtime zoneinfo fonts; do
     opts+=( --ro-bind-try "/etc/$f" "/etc/$f" )
   done
-  if [ -n "$net" ]; then
+  if [ "$net" = 1 ]; then
     opts+=( --share-net )
     for f in resolv.conf hosts ssl pki; do
       opts+=( --ro-bind-try "/etc/$f" "/etc/$f" )
     done
+  elif [ "$net" = isolated ]; then
+    # dns points at pasta's forwarder inside the private namespace
+    for f in hosts ssl pki; do
+      opts+=( --ro-bind-try "/etc/$f" "/etc/$f" )
+    done
+    printf 'nameserver 169.254.1.1\n' > "$app_home/.resolv.conf"
+    opts+=( --ro-bind "$app_home/.resolv.conf" /etc/resolv.conf )
   fi
   if [ -n "$gpu" ]; then
     opts+=(
@@ -167,12 +219,39 @@ pkgs.writeShellScriptBin "waypak" ''
   # app_path makes in-sandbox self-invocation hit the raw binary instead of
   # re-entering the wrapper; the xdg-open shim routes urls through the OpenURI
   # portal so they open on the host; GTK_USE_PORTAL gives host file pickers
-  path=$PATH
   if [ -n "$portal" ]; then
     path="${pkgs.flatpak-xdg-utils}/bin:$path"
     opts+=( --setenv GTK_USE_PORTAL 1 )
   fi
   [ -n "$app_path" ] && path="$app_path:$path"
   opts+=( --setenv PATH "$path" )
+  if [ -n "$seccomp_file" ]; then
+    # bwrap loads the compiled bpf program from an inherited fd
+    exec 9< "$seccomp_file"
+    opts+=( --seccomp 9 )
+  fi
+  if [ "$net" = isolated ]; then
+    # bwrap reports the sandbox pid on the info fd and parks the app on the
+    # block fd until pasta has configured the namespace; pasta backgrounds
+    # itself and exits when the namespace goes away
+    info_fifo=$(${pkgs.coreutils}/bin/mktemp -u)
+    block_fifo=$(${pkgs.coreutils}/bin/mktemp -u)
+    ${pkgs.coreutils}/bin/mkfifo "$info_fifo" "$block_fifo"
+    opts+=( --info-fd 8 --block-fd 7 )
+    ${pkgs.bubblewrap}/bin/bwrap "''${opts[@]}" "$@" 8> "$info_fifo" 7<> "$block_fifo" &
+    app_pid=$!
+    child_pid=$(${pkgs.gnused}/bin/sed -n 's/.*"child-pid": *\([0-9]*\).*/\1/p' "$info_fifo")
+    rm -f "$info_fifo"
+    [ -n "$child_pid" ] || {
+      echo "waypak: bwrap reported no child pid" >&2
+      exit 1
+    }
+    ${pkgs.passt}/bin/pasta --config-net --no-map-gw --dns-forward 169.254.1.1 --quiet "$child_pid"
+    printf x > "$block_fifo"
+    rm -f "$block_fifo"
+    rc=0
+    wait "$app_pid" || rc=$?
+    exit $rc
+  fi
   run_and_wait ${pkgs.bubblewrap}/bin/bwrap "''${opts[@]}" "$@"
 ''

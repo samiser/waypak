@@ -23,6 +23,8 @@
 
   clipse = {
     net = false;
+    userns = false; # go tui, no chromium sandbox to nest
+    storeClosure = true;
     waylandGlobals = [ "ext_data_control_manager_v1" ];
     # clipse -listen daemonises, which dies with the sandbox's pid namespace
     commands.listener = {
