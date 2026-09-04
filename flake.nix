@@ -16,6 +16,8 @@
     {
       policies = import ./profiles;
 
+      lib.fromFlatpakManifest = import ./lib/flatpak-manifest.nix { inherit (nixpkgs) lib; };
+
       nixosModules.default = import ./modules { policies = self.policies; };
 
       overlays.default = final: _: { way-secure = waySecure final; };

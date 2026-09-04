@@ -96,6 +96,16 @@ let
         default = profile.storeClosure or false;
         description = "bind only the app's closure instead of /nix and /run/current-system";
       };
+      binds = lib.mkOption {
+        type = lib.types.listOf lib.types.str;
+        default = profile.binds or [ ];
+        description = "extra paths bind-mounted read-write into the sandbox; shell vars expand at launch";
+      };
+      roBinds = lib.mkOption {
+        type = lib.types.listOf lib.types.str;
+        default = profile.roBinds or [ ];
+        description = "extra paths bind-mounted read-only into the sandbox; missing paths are skipped";
+      };
       gpu = lib.mkOption {
         type = lib.types.bool;
         default = profile.gpu or false;
@@ -155,16 +165,6 @@ in
               package = lib.mkOption {
                 type = lib.types.package;
                 description = "package whose binaries are wrapped to run sandboxed";
-              };
-              binds = lib.mkOption {
-                type = lib.types.listOf lib.types.str;
-                default = [ ];
-                description = "extra paths bind-mounted read-write into the sandbox; shell vars expand at launch";
-              };
-              roBinds = lib.mkOption {
-                type = lib.types.listOf lib.types.str;
-                default = [ ];
-                description = "extra paths bind-mounted read-only into the sandbox; missing paths are skipped";
               };
             };
           }
