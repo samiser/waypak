@@ -28,12 +28,18 @@ let
     ) app.commands;
 
   # replace each binary with a wrapper launching it through the sandbox;
-  # desktop files pointing at the original store path are rewritten
+  # desktop files pointing at the original store path are rewritten.
+  # meta/version/passthru survive so modules inspecting the package still work
   wrapApp =
     name: app:
     pkgs.symlinkJoin {
       name = "${name}-sandboxed";
       paths = [ app.package ];
+      passthru = (app.package.passthru or { }) // {
+        unwrapped = app.package;
+      };
+      inherit (app.package) meta;
+      version = app.package.version or "unknown";
       postBuild = ''
         for bin in $out/bin/*; do
           target=$(readlink -f "$bin")
@@ -168,6 +174,13 @@ in
       description = "apps installed sandboxed (security context + bwrap + filtered dbus); dbus policy defaults come from waypak's bundled profiles when the name matches";
     };
 
+    wrappedPackages = lib.mkOption {
+      type = lib.types.attrsOf lib.types.package;
+      readOnly = true;
+      default = lib.mapAttrs wrapApp cfg.apps;
+      description = "the sandboxed wrapper for each app, for handing to e.g. `programs.<x>.package`";
+    };
+
     securityContextRules = lib.mkOption {
       type = lib.types.listOf lib.types.attrs;
       readOnly = true;
@@ -202,7 +215,7 @@ in
   config = lib.mkIf (cfg.apps != { }) {
     environment.systemPackages =
       [ waypak ]
-      ++ lib.mapAttrsToList wrapApp cfg.apps
+      ++ lib.attrValues cfg.wrappedPackages
       ++ lib.concatLists (lib.mapAttrsToList mkCommands cfg.apps);
   };
 }
