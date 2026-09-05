@@ -96,6 +96,11 @@ let
         default = profile.storeClosure or false;
         description = "bind only the app's closure instead of /nix and /run/current-system";
       };
+      closured = lib.mkOption {
+        type = lib.types.bool;
+        default = profile.closured or false;
+        description = "deny execs outside the app's closure via a closured cgroup confinement; warns and continues if the closured daemon is not running";
+      };
       binds = lib.mkOption {
         type = lib.types.listOf lib.types.str;
         default = profile.binds or [ ];

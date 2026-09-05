@@ -74,6 +74,10 @@ waypak wayland-info       # security context only, no bwrap
   (including X11) are unreachable
 - `storeClosure = true` binds only the app's closure instead of all of /nix
   and /run/current-system
+- `closured = true` launches the app in its own cgroup and asks
+  [closured](https://github.com/samiser/closured) to deny execs outside its
+  closure, so even paths the sandbox can see aren't runnable; if the daemon
+  isn't running it warns and launches anyway
 
 ## goals
 
