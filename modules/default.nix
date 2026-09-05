@@ -182,17 +182,15 @@ in
       description = "the sandboxed wrapper for each app, for handing to e.g. `programs.<x>.package`";
     };
 
-    securityContextRules = lib.mkOption {
+    waylandGrants = lib.mkOption {
       type = lib.types.listOf lib.types.attrs;
       readOnly = true;
       default = lib.mapAttrsToList (name: app: {
-        match = {
-          sandbox_engine = lib.escapeRegex cfg.engine;
-          app_id = lib.escapeRegex name;
-        };
-        allow_globals = app.waylandGlobals;
+        inherit (cfg) engine;
+        appId = name;
+        globals = app.waylandGlobals;
       }) (lib.filterAttrs (_: app: app.waylandGlobals != [ ]) cfg.apps);
-      description = "umbriel `[[security_context_rule]]` entries for apps with `waylandGlobals`";
+      description = "privileged globals to re-grant per app, as {engine, appId, globals}; map into your compositor's security-context config (umbriel, jay, ...)";
     };
 
     defaultPolicy = lib.mkOption {
@@ -214,9 +212,10 @@ in
   };
 
   config = lib.mkIf (cfg.apps != { }) {
-    environment.systemPackages =
-      [ waypak ]
-      ++ lib.attrValues cfg.wrappedPackages
-      ++ lib.concatLists (lib.mapAttrsToList mkCommands cfg.apps);
+    environment.systemPackages = [
+      waypak
+    ]
+    ++ lib.attrValues cfg.wrappedPackages
+    ++ lib.concatLists (lib.mapAttrsToList mkCommands cfg.apps);
   };
 }
