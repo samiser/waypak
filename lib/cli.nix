@@ -241,6 +241,12 @@ pkgs.writeShellScriptBin "waypak" ''
     exec 9< "$seccomp_file"
     opts+=( --seccomp 9 )
   fi
+  if [ "$net" = isolated ]; then
+    info_fifo=$(${pkgs.coreutils}/bin/mktemp -u)
+    block_fifo=$(${pkgs.coreutils}/bin/mktemp -u)
+    ${pkgs.coreutils}/bin/mkfifo "$info_fifo" "$block_fifo"
+    opts+=( --info-fd 8 --block-fd 7 )
+  fi
   sandbox=( ${pkgs.bubblewrap}/bin/bwrap "''${opts[@]}" )
   # confine runs inside the scope so it lands on the app's own cgroup,
   # and before bwrap execs so nothing runs unconfined
@@ -263,10 +269,6 @@ pkgs.writeShellScriptBin "waypak" ''
     # bwrap reports the sandbox pid on the info fd and parks the app on the
     # block fd until pasta has configured the namespace; pasta backgrounds
     # itself and exits when the namespace goes away
-    info_fifo=$(${pkgs.coreutils}/bin/mktemp -u)
-    block_fifo=$(${pkgs.coreutils}/bin/mktemp -u)
-    ${pkgs.coreutils}/bin/mkfifo "$info_fifo" "$block_fifo"
-    opts+=( --info-fd 8 --block-fd 7 )
     "''${sandbox[@]}" "$@" 8> "$info_fifo" 7<> "$block_fifo" &
     app_pid=$!
     child_pid=$(${pkgs.gnused}/bin/sed -n 's/.*"child-pid": *\([0-9]*\).*/\1/p' "$info_fifo")
