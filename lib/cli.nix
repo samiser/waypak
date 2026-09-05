@@ -15,7 +15,8 @@ let
       map (n: "--talk=${n}") (policy.talk or [ ]) ++ map (n: "--own=${n}") (policy.own or [ ])
     );
   mkBinds = app: lib.concatMapStringsSep " " (p: ''--bind "${p}" "${p}"'') (app.binds or [ ]);
-  mkRoBinds = app: lib.concatMapStringsSep " " (p: ''--ro-bind-try "${p}" "${p}"'') (app.roBinds or [ ]);
+  mkRoBinds =
+    app: lib.concatMapStringsSep " " (p: ''--ro-bind-try "${p}" "${p}"'') (app.roBinds or [ ]);
   usesPortal = app: lib.elem "org.freedesktop.portal.Desktop" (app.talk or [ ]);
   flag = v: if v then "1" else "";
   # net is true (share), false (none) or "isolated" (private ns, internet via pasta)
@@ -57,20 +58,23 @@ let
     lib.optionalString ((app ? package) && (app.closured or false)) (
       toString (closureRoots app ++ [ pkgs.bubblewrap ])
     );
-  mkCase = name: app: ''
-    ${name})
-      dbus_filter="${mkFilter app}"
-      app_path="${lib.optionalString (app ? package) "${app.package}/bin"}"
-      extra_binds=(${mkBinds app})
-      ro_binds=(${mkRoBinds app})
-      net="${netVal app}" gpu=${flag (app.gpu or false)} audio=${flag (app.audio or false)}
-      portal=${flag (usesPortal app)}
-      seccomp_file="${seccompFile app}"
-      closure_file="${closureFile app}"
-      confine_roots="${confineRoots app}"
-      ;;
-  '';
-  policyCases = lib.concatStrings (lib.mapAttrsToList mkCase apps);
+  # the default `*)` case goes through the same helpers, so every policy
+  # variable is defined in exactly one place
+  mkPolicy =
+    app:
+    lib.concatStringsSep "\n    " [
+      ''dbus_filter="${mkFilter app}"''
+      ''app_path="${lib.optionalString (app ? package) "${app.package}/bin"}"''
+      "extra_binds=(${mkBinds app})"
+      "ro_binds=(${mkRoBinds app})"
+      ''net="${netVal app}" gpu=${flag (app.gpu or false)} audio=${flag (app.audio or false)}''
+      "portal=${flag (usesPortal app)}"
+      ''seccomp_file="${seccompFile app}"''
+      ''closure_file="${closureFile app}"''
+      ''confine_roots="${confineRoots app}"''
+    ];
+  mkCase = name: app: "  ${name})\n    ${mkPolicy app}\n    ;;\n";
+  policyCases = lib.concatStrings (lib.mapAttrsToList mkCase apps ++ [ (mkCase "*" defaultPolicy) ]);
 in
 pkgs.writeShellScriptBin "waypak" ''
   set -eu
@@ -132,15 +136,7 @@ pkgs.writeShellScriptBin "waypak" ''
 
   rm -f "$fifo"
   case $app_id in
-    ${policyCases}*)
-      dbus_filter="${mkFilter defaultPolicy}"
-      app_path="" extra_binds=() ro_binds=()
-      net=1 gpu="" audio="" portal=${flag (usesPortal defaultPolicy)}
-      seccomp_file="${seccompFilters}/default.bpf"
-      closure_file=""
-      confine_roots=""
-      ;;
-  esac
+  ${policyCases}esac
   # the proxy exits when its --fd closes, so hold fd 4 for the app's lifetime
   fifo2=$(${pkgs.coreutils}/bin/mktemp -u)
   ${pkgs.coreutils}/bin/mkfifo "$fifo2"
@@ -175,7 +171,12 @@ pkgs.writeShellScriptBin "waypak" ''
   # a closure file limits the store to the app's own paths; otherwise the
   # whole store plus the system profile are visible and host PATH keeps working
   if [ -n "$closure_file" ]; then
-    path="${lib.makeBinPath [ pkgs.bash pkgs.coreutils ]}"
+    path="${
+      lib.makeBinPath [
+        pkgs.bash
+        pkgs.coreutils
+      ]
+    }"
     while IFS= read -r p; do
       opts+=( --ro-bind "$p" "$p" )
     done < "$closure_file"
@@ -247,12 +248,12 @@ pkgs.writeShellScriptBin "waypak" ''
     ${pkgs.coreutils}/bin/mkfifo "$info_fifo" "$block_fifo"
     opts+=( --info-fd 8 --block-fd 7 )
   fi
-  sandbox=( ${pkgs.bubblewrap}/bin/bwrap "''${opts[@]}" )
+  launch=( ${pkgs.bubblewrap}/bin/bwrap "''${opts[@]}" )
   # confine runs inside the scope so it lands on the app's own cgroup,
   # and before bwrap execs so nothing runs unconfined
   if [ -n "$confine_roots" ]; then
     export WAYPAK_APP_ID="$app_id" WAYPAK_CONFINE_ROOTS="$confine_roots"
-    sandbox=(
+    launch=(
       ${pkgs.systemd}/bin/systemd-run --user --scope --quiet --collect
       --unit "waypak-$app_id-$$" --
       ${pkgs.runtimeShell} -c '
@@ -262,14 +263,14 @@ pkgs.writeShellScriptBin "waypak" ''
         else
           echo "waypak: closured not on PATH, continuing unconfined" >&2
         fi
-        exec "$@"' - "''${sandbox[@]}"
+        exec "$@"' - "''${launch[@]}"
     )
   fi
   if [ "$net" = isolated ]; then
     # bwrap reports the sandbox pid on the info fd and parks the app on the
     # block fd until pasta has configured the namespace; pasta backgrounds
     # itself and exits when the namespace goes away
-    "''${sandbox[@]}" "$@" 8> "$info_fifo" 7<> "$block_fifo" &
+    "''${launch[@]}" "$@" 8> "$info_fifo" 7<> "$block_fifo" &
     app_pid=$!
     child_pid=$(${pkgs.gnused}/bin/sed -n 's/.*"child-pid": *\([0-9]*\).*/\1/p' "$info_fifo")
     rm -f "$info_fifo"
@@ -284,5 +285,5 @@ pkgs.writeShellScriptBin "waypak" ''
     wait "$app_pid" || rc=$?
     exit $rc
   fi
-  run_and_wait "''${sandbox[@]}" "$@"
+  run_and_wait "''${launch[@]}" "$@"
 ''

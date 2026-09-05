@@ -1,6 +1,7 @@
 # per-app policies:
 #   talk/own = dbus names (call/claim)
 #   net/gpu/audio = resource toggles
+#   seccomp/userns/storeClosure/closured = hardening toggles
 #   user-specific paths (binds) belong in host config.
 {
   spotify = {
