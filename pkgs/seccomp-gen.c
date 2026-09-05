@@ -1,6 +1,5 @@
-/* emits a bwrap-loadable bpf seccomp filter on stdout: flatpak's baseline
- * (tty keystroke injection, tracing, kernel keyring, mount family), plus
- * optional denial of nested user namespaces with --deny-userns */
+/* emits flatpak's baseline seccomp filter as bpf on stdout, with
+ * --deny-userns additionally denying nested user namespaces */
 #define _GNU_SOURCE
 #include <errno.h>
 #include <sched.h>
@@ -31,8 +30,8 @@ int main(int argc, char **argv) {
   for (size_t i = 0; i < sizeof(denied) / sizeof(*denied); i++)
     rc |= seccomp_rule_add(ctx, SCMP_ACT_ERRNO(EPERM), denied[i], 0);
 
-  /* keystroke injection into the controlling terminal; the mask also matches
-   * high-bit variants (CVE-2019-10063) */
+  /* keystroke injection into the controlling terminal, masked so
+   * high-bit variants match too (CVE-2019-10063) */
   rc |= seccomp_rule_add(ctx, SCMP_ACT_ERRNO(EPERM), SCMP_SYS(ioctl), 1,
                          SCMP_A1(SCMP_CMP_MASKED_EQ, 0xFFFFFFFFu,
                                  (unsigned int)TIOCSTI));
@@ -51,8 +50,8 @@ int main(int argc, char **argv) {
                            SCMP_A0(SCMP_CMP_MASKED_EQ, CLONE_NEWUSER,
                                    CLONE_NEWUSER));
     rc |= seccomp_rule_add(ctx, SCMP_ACT_ERRNO(EPERM), SCMP_SYS(setns), 0);
-    /* clone3's flags live in a struct seccomp can't inspect; ENOSYS makes
-     * libcs fall back to clone, which the rule above covers */
+    /* clone3's flags live in a struct seccomp can't inspect, so ENOSYS
+     * makes libcs fall back to clone, which the rule above covers */
     rc |= seccomp_rule_add(ctx, SCMP_ACT_ERRNO(ENOSYS), SCMP_SYS(clone3), 0);
   }
 

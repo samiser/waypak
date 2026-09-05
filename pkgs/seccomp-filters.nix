@@ -1,5 +1,3 @@
-# compiles the default seccomp filters at build time; bwrap loads the raw
-# bpf via --seccomp <fd>
 { runCommandCC, libseccomp }:
 runCommandCC "waypak-seccomp-filters" { buildInputs = [ libseccomp ]; } ''
   mkdir -p $out

@@ -1,5 +1,4 @@
-# converts a flatpak manifest (attrset, or path to a json manifest) into a
-# waypak profile by mapping finish-args; yaml manifests need converting first
+# turns a flatpak manifest (attrset or json path) into a waypak profile
 { lib }:
 manifest:
 let
@@ -16,7 +15,7 @@ let
     xdg-pictures = "$HOME/Pictures";
     xdg-videos = "$HOME/Videos";
   };
-  # home/host grants are dropped: binding all of $HOME defeats the sandbox
+  # home/host grants are dropped because binding all of $HOME defeats the sandbox
   parseFs =
     raw:
     let

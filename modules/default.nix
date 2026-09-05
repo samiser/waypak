@@ -15,8 +15,6 @@ let
     apps = cfg.apps;
   };
 
-  # extra entrypoints run inside an app's sandbox; deps are package names
-  # resolved here so the generated bin is self-contained
   mkCommands =
     name: app:
     lib.mapAttrsToList (
@@ -27,8 +25,6 @@ let
       ''
     ) app.commands;
 
-  # replace each binary with a wrapper launching it through the sandbox;
-  # desktop files pointing at the original store path are rewritten.
   # meta/version/passthru survive so modules inspecting the package still work
   wrapApp =
     name: app:

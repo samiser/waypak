@@ -19,7 +19,6 @@ let
     app: lib.concatMapStringsSep " " (p: ''--ro-bind-try "${p}" "${p}"'') (app.roBinds or [ ]);
   usesPortal = app: lib.elem "org.freedesktop.portal.Desktop" (app.talk or [ ]);
   flag = v: if v then "1" else "";
-  # net is true (share), false (none) or "isolated" (private ns, internet via pasta)
   netVal =
     app:
     let
@@ -36,8 +35,7 @@ let
     lib.optionalString (app.seccomp or true) (
       if app.userns or true then "${seccompFilters}/default.bpf" else "${seccompFilters}/no-userns.bpf"
     );
-  # bash/coreutils are always included: commands run through runtimeShell and
-  # apps shelling out to sh/env is common
+  # commands and app shell-outs need bash and coreutils
   closureRoots =
     app:
     [
@@ -52,14 +50,12 @@ let
     lib.optionalString ((app ? package) && (app.storeClosure or false)) (
       pkgs.writeClosure (closureRoots app)
     );
-  # bwrap is confined too: it execs inside the scope after confine lands
+  # bwrap execs inside the scope, so it is confined too
   confineRoots =
     app:
     lib.optionalString ((app ? package) && (app.closured or false)) (
       toString (closureRoots app ++ [ pkgs.bubblewrap ])
     );
-  # the default `*)` case goes through the same helpers, so every policy
-  # variable is defined in exactly one place
   mkPolicy =
     app:
     lib.concatStringsSep "\n    " [
@@ -106,8 +102,7 @@ pkgs.writeShellScriptBin "waypak" ''
     [ -n "''${info_fifo:-}" ] && rm -f "$info_fifo" "$block_fifo" || true
   }
   trap cleanup EXIT INT TERM
-  # run the app in the background and wait: a foreground child would block
-  # signal delivery, leaving the wrapper unkillable and cleanup never running
+  # a foreground child would block signal delivery and skip cleanup
   run_and_wait() {
     "$@" &
     app_pid=$!
@@ -122,7 +117,7 @@ pkgs.writeShellScriptBin "waypak" ''
     -r 3 3> "$fifo" &
   ws_pid=$!
 
-  # readiness: way-secure writes to fd 3 once the context is committed
+  # way-secure writes to fd 3 once the context is committed
   read -r _ < "$fifo" || true
   kill -0 "$ws_pid" 2>/dev/null || {
     echo "waypak: way-secure failed" >&2
@@ -153,8 +148,7 @@ pkgs.writeShellScriptBin "waypak" ''
   }
 
   app_home="$HOME/.local/share/waypak/$app_id"
-  # /tmp persists per app: chromium's single-instance socket lives there,
-  # and a fresh tmpfs each launch makes concurrent launches corrupt the profile
+  # a fresh /tmp each launch would break chromium's single-instance socket
   mkdir -p "$app_home" "$app_home/.tmp"
   opts=(
     --unshare-all --die-with-parent
@@ -168,8 +162,6 @@ pkgs.writeShellScriptBin "waypak" ''
     --setenv DBUS_SESSION_BUS_ADDRESS "unix:path=$XDG_RUNTIME_DIR/bus"
     --unsetenv DISPLAY --unsetenv UMBRIEL_SOCKET
   )
-  # a closure file limits the store to the app's own paths; otherwise the
-  # whole store plus the system profile are visible and host PATH keeps working
   if [ -n "$closure_file" ]; then
     path="${
       lib.makeBinPath [
@@ -184,8 +176,7 @@ pkgs.writeShellScriptBin "waypak" ''
     path=$PATH
     opts+=( --ro-bind /nix /nix --ro-bind /run/current-system /run/current-system )
   fi
-  # /etc is cherry-picked, not bound wholesale; /etc/static backs the
-  # nixos symlinks
+  # /etc/static backs the nixos /etc symlinks
   for f in static nsswitch.conf passwd group machine-id localtime zoneinfo fonts; do
     opts+=( --ro-bind-try "/etc/$f" "/etc/$f" )
   done
@@ -195,7 +186,6 @@ pkgs.writeShellScriptBin "waypak" ''
       opts+=( --ro-bind-try "/etc/$f" "/etc/$f" )
     done
   elif [ "$net" = isolated ]; then
-    # dns points at pasta's forwarder inside the private namespace
     for f in hosts ssl pki; do
       opts+=( --ro-bind-try "/etc/$f" "/etc/$f" )
     done
@@ -223,22 +213,19 @@ pkgs.writeShellScriptBin "waypak" ''
       --bind-try "$XDG_RUNTIME_DIR/pulse" "$XDG_RUNTIME_DIR/pulse"
     )
   fi
-  # extra_binds triples are (--bind, src, dst); create sources, mount over app home
+  # extra_binds are (--bind, src, dst) triples whose sources must exist
   for ((i = 1; i < ''${#extra_binds[@]}; i += 3)); do
     mkdir -p "''${extra_binds[i]}"
   done
   opts+=( "''${extra_binds[@]}" "''${ro_binds[@]}" )
-  # app_path makes in-sandbox self-invocation hit the raw binary instead of
-  # re-entering the wrapper; the xdg-open shim routes urls through the OpenURI
-  # portal so they open on the host; GTK_USE_PORTAL gives host file pickers
   if [ -n "$portal" ]; then
     path="${pkgs.flatpak-xdg-utils}/bin:$path"
     opts+=( --setenv GTK_USE_PORTAL 1 )
   fi
+  # raw binary first, so in-sandbox self-invocation skips the wrapper
   [ -n "$app_path" ] && path="$app_path:$path"
   opts+=( --setenv PATH "$path" )
   if [ -n "$seccomp_file" ]; then
-    # bwrap loads the compiled bpf program from an inherited fd
     exec 9< "$seccomp_file"
     opts+=( --seccomp 9 )
   fi
@@ -249,8 +236,7 @@ pkgs.writeShellScriptBin "waypak" ''
     opts+=( --info-fd 8 --block-fd 7 )
   fi
   launch=( ${pkgs.bubblewrap}/bin/bwrap "''${opts[@]}" )
-  # confine runs inside the scope so it lands on the app's own cgroup,
-  # and before bwrap execs so nothing runs unconfined
+  # confine must land on the scope's cgroup before bwrap execs
   if [ -n "$confine_roots" ]; then
     export WAYPAK_APP_ID="$app_id" WAYPAK_CONFINE_ROOTS="$confine_roots"
     launch=(
@@ -267,9 +253,7 @@ pkgs.writeShellScriptBin "waypak" ''
     )
   fi
   if [ "$net" = isolated ]; then
-    # bwrap reports the sandbox pid on the info fd and parks the app on the
-    # block fd until pasta has configured the namespace; pasta backgrounds
-    # itself and exits when the namespace goes away
+    # bwrap parks the app on the block fd until pasta configures the namespace
     "''${launch[@]}" "$@" 8> "$info_fifo" 7<> "$block_fifo" &
     app_pid=$!
     child_pid=$(${pkgs.gnused}/bin/sed -n 's/.*"child-pid": *\([0-9]*\).*/\1/p' "$info_fifo")
