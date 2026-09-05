@@ -105,8 +105,8 @@ waypak wayland-info       # security context only, no bwrap
 - network is shared by default (`net = false` to unshare, `net = "isolated"`
   for pasta), gpu and audio are opt-in per app, /etc is cherry-picked (not
   bound directly)
-- no document portal yet: file pickers show host files but only bound paths work
-  inside
+- apps with portal access see a fake /.flatpak-info, so they may believe
+  they're flatpaks
 - protects against sloppy apps and their plugin/content ecosystems, not targeted
   malware
 

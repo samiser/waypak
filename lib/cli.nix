@@ -9,10 +9,13 @@
 let
   lib = pkgs.lib;
   seccompFilters = pkgs.callPackage ../pkgs/seccomp-filters.nix { };
+  # picked files are handed over through the document portal
   mkFilter =
     policy:
     lib.concatStringsSep " " (
-      map (n: "--talk=${n}") (policy.talk or [ ]) ++ map (n: "--own=${n}") (policy.own or [ ])
+      map (n: "--talk=${n}") (policy.talk or [ ])
+      ++ map (n: "--own=${n}") (policy.own or [ ])
+      ++ lib.optional (usesPortal policy) "--talk=org.freedesktop.portal.Documents"
     );
   mkBinds = app: lib.concatMapStringsSep " " (p: ''--bind "${p}" "${p}"'') (app.binds or [ ]);
   mkRoBinds =
@@ -100,6 +103,7 @@ pkgs.writeShellScriptBin "waypak" ''
     [ -n "''${proxy_pid:-}" ] && kill "$proxy_pid" 2>/dev/null || true
     rm -f "$sock" "$bus_proxy" "$fifo"
     [ -n "''${info_fifo:-}" ] && rm -f "$info_fifo" "$block_fifo" || true
+    [ -n "''${flatpak_info:-}" ] && rm -f "$flatpak_info" || true
   }
   trap cleanup EXIT INT TERM
   # a foreground child would block signal delivery and skip cleanup
@@ -132,10 +136,25 @@ pkgs.writeShellScriptBin "waypak" ''
   rm -f "$fifo"
   case $app_id in
   ${policyCases}esac
+  proxy=( ${pkgs.xdg-dbus-proxy}/bin/xdg-dbus-proxy )
+  # portals resolve the calling app id from /.flatpak-info in the proxy's
+  # mount namespace, so the proxy gets its own bwrap carrying that file
+  if [ -n "$portal" ]; then
+    flatpak_info="$XDG_RUNTIME_DIR/waypak-info-$app_id-$$"
+    printf '[Application]\nname=%s\n\n[Instance]\ninstance-id=%s\n' \
+      "$app_id" "$app_id-$$" > "$flatpak_info"
+    proxy=(
+      ${pkgs.bubblewrap}/bin/bwrap --die-with-parent
+      --ro-bind /nix /nix --bind "$XDG_RUNTIME_DIR" "$XDG_RUNTIME_DIR"
+      --proc /proc --dev /dev
+      --ro-bind "$flatpak_info" /.flatpak-info
+      "''${proxy[@]}"
+    )
+  fi
   # the proxy exits when its --fd closes, so hold fd 4 for the app's lifetime
   fifo2=$(${pkgs.coreutils}/bin/mktemp -u)
   ${pkgs.coreutils}/bin/mkfifo "$fifo2"
-  ${pkgs.xdg-dbus-proxy}/bin/xdg-dbus-proxy \
+  "''${proxy[@]}" \
     "''${DBUS_SESSION_BUS_ADDRESS:-unix:path=$XDG_RUNTIME_DIR/bus}" \
     "$bus_proxy" --filter $dbus_filter --fd=3 3> "$fifo2" &
   proxy_pid=$!
@@ -220,7 +239,13 @@ pkgs.writeShellScriptBin "waypak" ''
   opts+=( "''${extra_binds[@]}" "''${ro_binds[@]}" )
   if [ -n "$portal" ]; then
     path="${pkgs.flatpak-xdg-utils}/bin:$path"
-    opts+=( --setenv GTK_USE_PORTAL 1 )
+    # the by-app view of the document portal makes picked files resolvable
+    opts+=(
+      --setenv GTK_USE_PORTAL 1
+      --setenv FLATPAK_ID "$app_id"
+      --ro-bind "$flatpak_info" /.flatpak-info
+      --bind-try "$XDG_RUNTIME_DIR/doc/by-app/$app_id" "$XDG_RUNTIME_DIR/doc"
+    )
   fi
   # raw binary first, so in-sandbox self-invocation skips the wrapper
   [ -n "$app_path" ] && path="$app_path:$path"
