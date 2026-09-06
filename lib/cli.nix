@@ -48,7 +48,8 @@ let
       pkgs.coreutils
     ]
     ++ map (d: pkgs.${d}) (lib.concatMap (c: c.deps) (lib.attrValues (app.commands or { })))
-    ++ lib.optional (usesPortal app) pkgs.flatpak-xdg-utils;
+    ++ lib.optional (usesPortal app) pkgs.flatpak-xdg-utils
+    ++ (app.closureExtra or [ ]);
   closureFile =
     app:
     lib.optionalString ((app ? package) && (app.storeClosure or false)) (
