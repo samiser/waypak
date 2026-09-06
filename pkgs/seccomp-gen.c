@@ -1,5 +1,3 @@
-/* emits flatpak's baseline seccomp filter as bpf on stdout, with
- * --deny-userns additionally denying nested user namespaces */
 #define _GNU_SOURCE
 #include <errno.h>
 #include <sched.h>
@@ -10,23 +8,24 @@
 #include <sys/personality.h>
 
 int main(int argc, char **argv) {
-  int deny_userns = argc > 1 && strcmp(argv[1], "--deny-userns") == 0;
   scmp_filter_ctx ctx = seccomp_init(SCMP_ACT_ALLOW);
   if (!ctx)
     return 1;
 
   int rc = 0;
-  const int denied[] = {
-      SCMP_SYS(syslog),        SCMP_SYS(uselib),
-      SCMP_SYS(acct),          SCMP_SYS(quotactl),
-      SCMP_SYS(add_key),       SCMP_SYS(keyctl),
-      SCMP_SYS(request_key),   SCMP_SYS(move_pages),
-      SCMP_SYS(mbind),         SCMP_SYS(get_mempolicy),
-      SCMP_SYS(set_mempolicy), SCMP_SYS(migrate_pages),
-      SCMP_SYS(ptrace),        SCMP_SYS(perf_event_open),
-  };
-  for (size_t i = 0; i < sizeof(denied) / sizeof(*denied); i++)
-    rc |= seccomp_rule_add(ctx, SCMP_ACT_ERRNO(EPERM), denied[i], 0);
+  int deny_userns = 0;
+  for (int i = 1; i < argc; i++) {
+    if (strcmp(argv[i], "--deny-userns") == 0) {
+      deny_userns = 1;
+      continue;
+    }
+    int nr = seccomp_syscall_resolve_name(argv[i]);
+    if (nr == __NR_SCMP_ERROR) {
+      fprintf(stderr, "unknown syscall: %s\n", argv[i]);
+      return 1;
+    }
+    rc |= seccomp_rule_add(ctx, SCMP_ACT_ERRNO(EPERM), nr, 0);
+  }
 
   /* keystroke injection into the controlling terminal, masked so
    * high-bit variants match too (CVE-2019-10063) */

@@ -80,7 +80,12 @@ let
       seccomp = lib.mkOption {
         type = lib.types.bool;
         default = profile.seccomp or true;
-        description = "apply the default seccomp filter (flatpak's baseline: tty ioctl injection, ptrace, kernel keyring, mount family)";
+        description = "apply the baseline seccomp filter (kernel keyring, ptrace, tty ioctl injection and more)";
+      };
+      extraSeccomp = lib.mkOption {
+        type = lib.types.listOf lib.types.str;
+        default = profile.extraSeccomp or [ ];
+        description = "extra syscall names to deny on top of the baseline, ignored when seccomp is false";
       };
       userns = lib.mkOption {
         type = lib.types.bool;

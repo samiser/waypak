@@ -8,7 +8,7 @@
 }:
 let
   lib = pkgs.lib;
-  seccompFilters = pkgs.callPackage ../pkgs/seccomp-filters.nix { };
+  seccompLib = pkgs.callPackage ../pkgs/seccomp-filters.nix { };
   # picked files are handed over through the document portal
   mkFilter =
     policy:
@@ -35,9 +35,10 @@ let
       v;
   seccompFile =
     app:
-    lib.optionalString (app.seccomp or true) (
-      if app.userns or true then "${seccompFilters}/default.bpf" else "${seccompFilters}/no-userns.bpf"
-    );
+    lib.optionalString (app.seccomp or true) "${seccompLib.mkFilter {
+      syscalls = seccompLib.baseSyscalls ++ (app.extraSeccomp or [ ]);
+      denyUserns = !(app.userns or true);
+    }}";
   # commands and app shell-outs need bash and coreutils
   closureRoots =
     app:
