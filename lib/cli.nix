@@ -25,7 +25,7 @@ let
   netVal =
     app:
     let
-      v = app.net or true;
+      v = app.net or false;
     in
     if v == true then
       "1"

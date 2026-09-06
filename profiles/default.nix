@@ -3,6 +3,7 @@
   spotify = {
     talk = [ "org.freedesktop.Notifications" ];
     own = [ "org.mpris.MediaPlayer2.spotify" ];
+    net = true;
     audio = true;
   };
 
@@ -14,6 +15,7 @@
     ];
     # electron's main process is always pid 2 in the sandbox's pid namespace
     own = [ "org.freedesktop.StatusNotifierItem-2-1" ];
+    net = true;
     audio = true;
     gpu = true; # screenshare needs dmabuf import
   };
@@ -35,5 +37,6 @@
       "org.freedesktop.Notifications"
       "org.freedesktop.portal.Desktop"
     ];
+    net = true;
   };
 }

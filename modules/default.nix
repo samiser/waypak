@@ -74,7 +74,7 @@ let
       };
       net = lib.mkOption {
         type = lib.types.either lib.types.bool (lib.types.enum [ "isolated" ]);
-        default = profile.net or true;
+        default = profile.net or false;
         description = "true shares the host network namespace, false unshares it, \"isolated\" is a private namespace with internet via pasta (localhost and abstract sockets unreachable)";
       };
       seccomp = lib.mkOption {
