@@ -24,8 +24,6 @@ int main(int argc, char **argv) {
       SCMP_SYS(mbind),         SCMP_SYS(get_mempolicy),
       SCMP_SYS(set_mempolicy), SCMP_SYS(migrate_pages),
       SCMP_SYS(ptrace),        SCMP_SYS(perf_event_open),
-      SCMP_SYS(mount),         SCMP_SYS(umount2),
-      SCMP_SYS(pivot_root),    SCMP_SYS(chroot),
   };
   for (size_t i = 0; i < sizeof(denied) / sizeof(*denied); i++)
     rc |= seccomp_rule_add(ctx, SCMP_ACT_ERRNO(EPERM), denied[i], 0);
