@@ -72,14 +72,19 @@ capabilities flatpak can express into waypak's other options.
 
 `waypak.wrappedPackages.<name>` exposes each sandboxed wrapper for handing to
 other modules (eg. `programs.<x>.package`); the original package stays reachable
-as `passthru.unwrapped`
+as `passthru.unwrapped`, and `passthru.waypak` carries the evaluated policy, the
+launcher script and the app's wayland grant
 
-ad-hoc:
+the module is a thin layer over `waypak.lib.wrap`, which can be used anywhere
+nix is used:
 
-```bash
-waypak -s some-app        # sandbox with default policy
-waypak -a spotify -s cmd  # sandbox with spotify's policy
-waypak wayland-info       # security context only, no bwrap
+```nix
+waypak.lib.wrap {
+  inherit pkgs;
+  name = "spotify";
+  package = pkgs.spotify;
+  binds = [ "$HOME/Music" ];
+}
 ```
 
 ## hardening
@@ -103,8 +108,8 @@ waypak wayland-info       # security context only, no bwrap
 
 - nixos native sandboxing: wrap the package, keep the name and desktop entry,
   configure everything from the module
-- the whole runtime is one generated shell script, so `cat $(which waypak)`
-  shows you exactly what a sandbox does
+- each app's launcher is one generated shell script with its policy at the top,
+  so `cat` on it shows you exactly what that sandbox does
 - each layer does one job: the compositor decides what an app can show, the dbus
   proxy what it can say, bwrap what it can see, seccomp what it can call
 - any option can be switched off and you get exactly the behaviour from before
@@ -129,5 +134,15 @@ waypak wayland-info       # security context only, no bwrap
 - protects against sloppy apps and their plugin/content ecosystems, not targeted
   malware
 
-built on [way-secure](https://git.sr.ht/~whynothugo/way-secure) (vendored until
-it lands in nixpkgs), prior art in [nixpak](https://github.com/nixpak/nixpak)
+## credits
+
+built on [way-secure](https://git.sr.ht/~whynothugo/way-secure), vendored until
+it lands in nixpkgs
+
+design inspiration from other good solutions with overlapping concerns:
+
+- [nixpak](https://github.com/nixpak/nixpak) for the modular approach and
+  flatpak-aligned features
+- [jail.nix](https://sr.ht/~alexdavid/jail.nix/) for the wrapping approach and
+  interface design (i really love the combinators / pure function idea but it's
+  quite different to what waypak is going for)

@@ -1,99 +1,60 @@
-# builds the waypak launcher with the given policies baked in
+# builds the self-contained launcher for one app, with its policy inlined
 {
   pkgs,
   way-secure,
   engine,
-  apps,
-  defaultPolicy,
 }:
+{ name, policy }:
 let
   lib = pkgs.lib;
   seccompLib = pkgs.callPackage ../pkgs/seccomp-filters.nix { };
+  usesPortal = lib.elem "org.freedesktop.portal.Desktop" policy.talk;
   # picked files are handed over through the document portal
-  mkFilter =
-    policy:
-    lib.concatStringsSep " " (
-      map (n: "--talk=${n}") (policy.talk or [ ])
-      ++ map (n: "--own=${n}") (policy.own or [ ])
-      ++ lib.optional (usesPortal policy) "--talk=org.freedesktop.portal.Documents"
-    );
-  mkBinds = app: lib.concatMapStringsSep " " (p: ''--bind "${p}" "${p}"'') (app.binds or [ ]);
-  mkRoBinds =
-    app: lib.concatMapStringsSep " " (p: ''--ro-bind-try "${p}" "${p}"'') (app.roBinds or [ ]);
-  usesPortal = app: lib.elem "org.freedesktop.portal.Desktop" (app.talk or [ ]);
+  dbusFilter = lib.concatStringsSep " " (
+    map (n: "--talk=${n}") policy.talk
+    ++ map (n: "--own=${n}") policy.own
+    ++ lib.optional usesPortal "--talk=org.freedesktop.portal.Documents"
+  );
+  binds = lib.concatMapStringsSep " " (p: ''--bind "${p}" "${p}"'') policy.binds;
+  roBinds = lib.concatMapStringsSep " " (p: ''--ro-bind-try "${p}" "${p}"'') policy.roBinds;
   flag = v: if v then "1" else "";
-  netVal =
-    app:
-    let
-      v = app.net or false;
-    in
-    if v == true then
+  net =
+    if policy.net == true then
       "1"
-    else if v == false then
+    else if policy.net == false then
       ""
     else
-      v;
-  seccompFile =
-    app:
-    lib.optionalString (app.seccomp or true) "${seccompLib.mkFilter {
-      syscalls = seccompLib.baseSyscalls ++ (app.extraSeccomp or [ ]);
-      denyUserns = !(app.userns or true);
-    }}";
+      policy.net;
+  seccompFile = lib.optionalString policy.seccomp "${seccompLib.mkFilter {
+    syscalls = seccompLib.baseSyscalls ++ policy.extraSeccomp;
+    denyUserns = !policy.userns;
+  }}";
   # commands and app shell-outs need bash and coreutils
-  closureRoots =
-    app:
-    [
-      app.package
-      pkgs.bash
-      pkgs.coreutils
-    ]
-    ++ map (d: pkgs.${d}) (lib.concatMap (c: c.deps) (lib.attrValues (app.commands or { })))
-    ++ lib.optional (usesPortal app) pkgs.flatpak-xdg-utils
-    ++ (app.closureExtra or [ ]);
-  closureFile =
-    app:
-    lib.optionalString ((app ? package) && (app.storeClosure or false)) (
-      pkgs.writeClosure (closureRoots app)
-    );
+  closureRoots = [
+    policy.package
+    pkgs.bash
+    pkgs.coreutils
+  ]
+  ++ map (d: pkgs.${d}) (lib.concatMap (c: c.deps) (lib.attrValues policy.commands))
+  ++ lib.optional usesPortal pkgs.flatpak-xdg-utils
+  ++ policy.closureExtra;
+  closureFile = lib.optionalString policy.storeClosure (pkgs.writeClosure closureRoots);
   # bwrap execs inside the scope, so it is confined too
-  confineRoots =
-    app:
-    lib.optionalString ((app ? package) && (app.closured or false)) (
-      toString (closureRoots app ++ [ pkgs.bubblewrap ])
-    );
-  mkPolicy =
-    app:
-    lib.concatStringsSep "\n    " [
-      ''dbus_filter="${mkFilter app}"''
-      ''app_path="${lib.optionalString (app ? package) "${app.package}/bin"}"''
-      "extra_binds=(${mkBinds app})"
-      "ro_binds=(${mkRoBinds app})"
-      ''net="${netVal app}" gpu=${flag (app.gpu or false)} audio=${flag (app.audio or false)}''
-      "portal=${flag (usesPortal app)}"
-      ''seccomp_file="${seccompFile app}"''
-      ''closure_file="${closureFile app}"''
-      ''confine_roots="${confineRoots app}"''
-      "clearenv=${flag (app.clearenv or true)}"
-    ];
-  mkCase = name: app: "  ${name})\n    ${mkPolicy app}\n    ;;\n";
-  policyCases = lib.concatStrings (lib.mapAttrsToList mkCase apps ++ [ (mkCase "*" defaultPolicy) ]);
+  confineRoots = lib.optionalString policy.closured (toString (closureRoots ++ [ pkgs.bubblewrap ]));
 in
-pkgs.writeShellScriptBin "waypak" ''
+pkgs.writeShellScriptBin "waypak-${name}" ''
   set -eu
-  app_id=""
-  sandbox=""
-  while [ $# -gt 0 ]; do
-    case $1 in
-      -a) app_id=$2; shift 2 ;;
-      -s) sandbox=1; shift ;;
-      *) break ;;
-    esac
-  done
-  if [ $# -lt 1 ]; then
-    echo "usage: waypak [-a app-id] [-s] <command...>" >&2
-    exit 1
-  fi
-  [ -n "$app_id" ] || app_id=''${1##*/}
+  app_id=${lib.escapeShellArg name}
+  dbus_filter="${dbusFilter}"
+  app_path="${policy.package}/bin"
+  extra_binds=(${binds})
+  ro_binds=(${roBinds})
+  net="${net}" gpu=${flag policy.gpu} audio=${flag policy.audio}
+  portal=${flag usesPortal}
+  seccomp_file="${seccompFile}"
+  closure_file="${closureFile}"
+  confine_roots="${confineRoots}"
+  clearenv=${flag policy.clearenv}
 
   sock="$XDG_RUNTIME_DIR/waypak-$app_id-$$"
   bus_proxy="$XDG_RUNTIME_DIR/waypak-bus-$app_id-$$"
@@ -131,14 +92,7 @@ pkgs.writeShellScriptBin "waypak" ''
     exit 1
   }
 
-  if [ -z "$sandbox" ]; then
-    rm -f "$fifo"
-    WAYLAND_DISPLAY=''${sock##*/} run_and_wait "$@"
-  fi
-
   rm -f "$fifo"
-  case $app_id in
-  ${policyCases}esac
   proxy=( ${pkgs.xdg-dbus-proxy}/bin/xdg-dbus-proxy )
   # portals resolve the calling app id from /.flatpak-info in the proxy's
   # mount namespace, so the proxy gets its own bwrap carrying that file

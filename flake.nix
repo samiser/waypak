@@ -17,6 +17,7 @@
       policies = import ./profiles;
 
       lib = {
+        wrap = import ./lib/wrap.nix;
         fromFlatpakManifest = import ./lib/flatpak-manifest.nix { inherit (nixpkgs) lib; };
       }
       // import ./lib/compositor-rules.nix { inherit (nixpkgs) lib; };
@@ -27,14 +28,28 @@
 
       packages = forAllSystems (pkgs: rec {
         way-secure = waySecure pkgs;
-        waypak = import ./lib/cli.nix {
-          inherit pkgs;
-          way-secure = waySecure pkgs;
-          engine = "waypak";
-          apps = self.policies;
-          defaultPolicy = { };
-        };
-        default = waypak;
+        default = way-secure;
       });
+
+      checks = forAllSystems (
+        pkgs:
+        let
+          hello = self.lib.wrap {
+            inherit pkgs;
+            name = "hello";
+            package = pkgs.hello;
+            commands.greet.cmd = "hello -g hi";
+          };
+        in
+        {
+          wrap-hello = pkgs.runCommand "waypak-wrap-hello" { } ''
+            grep -q 'exec ${hello.passthru.waypak.launcher}/bin/waypak-hello ' ${hello}/bin/hello
+            grep -q 'exec ${hello.passthru.waypak.launcher}/bin/waypak-hello ' ${hello}/bin/hello-greet
+            grep -q '^app_id=hello$' ${hello.passthru.waypak.launcher}/bin/waypak-hello
+            [ ${hello.passthru.unwrapped} = ${pkgs.hello} ]
+            touch $out
+          '';
+        }
+      );
     };
 }
