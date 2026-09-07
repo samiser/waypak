@@ -1,4 +1,3 @@
-# builds the self-contained launcher for one app, with its policy inlined
 {
   pkgs,
   way-secure,
@@ -6,15 +5,16 @@
 }:
 { name, policy }:
 let
-  lib = pkgs.lib;
+  inherit (pkgs) lib;
+
   seccompLib = pkgs.callPackage ../pkgs/seccomp-filters.nix { };
   usesPortal = lib.elem "org.freedesktop.portal.Desktop" policy.talk;
-  # picked files are handed over through the document portal
   dbusFilter = lib.concatStringsSep " " (
     map (n: "--talk=${n}") policy.talk
     ++ map (n: "--own=${n}") policy.own
     ++ lib.optional usesPortal "--talk=org.freedesktop.portal.Documents"
   );
+
   binds = lib.concatMapStringsSep " " (p: ''--bind "${p}" "${p}"'') policy.binds;
   roBinds = lib.concatMapStringsSep " " (p: ''--ro-bind-try "${p}" "${p}"'') policy.roBinds;
   flag = v: if v then "1" else "";
@@ -25,21 +25,23 @@ let
       ""
     else
       policy.net;
+
   seccompFile = lib.optionalString policy.seccomp "${seccompLib.mkFilter {
     syscalls = seccompLib.baseSyscalls ++ policy.extraSeccomp;
     denyUserns = !policy.userns;
   }}";
-  # commands and app shell-outs need bash and coreutils
+
+  commandDeps = map (d: pkgs.${d}) (lib.concatMap (c: c.deps) (lib.attrValues policy.commands));
+  depsPath = lib.makeBinPath commandDeps;
   closureRoots = [
     policy.package
     pkgs.bash
     pkgs.coreutils
   ]
-  ++ map (d: pkgs.${d}) (lib.concatMap (c: c.deps) (lib.attrValues policy.commands))
+  ++ commandDeps
   ++ lib.optional usesPortal pkgs.flatpak-xdg-utils
   ++ policy.closureExtra;
   closureFile = lib.optionalString policy.storeClosure (pkgs.writeClosure closureRoots);
-  # bwrap execs inside the scope, so it is confined too
   confineRoots = lib.optionalString policy.closured (toString (closureRoots ++ [ pkgs.bubblewrap ]));
 in
 pkgs.writeShellScriptBin "waypak-${name}" ''
@@ -47,6 +49,7 @@ pkgs.writeShellScriptBin "waypak-${name}" ''
   app_id=${lib.escapeShellArg name}
   dbus_filter="${dbusFilter}"
   app_path="${policy.package}/bin"
+  deps_path="${depsPath}"
   extra_binds=(${binds})
   ro_binds=(${roBinds})
   net="${net}" gpu=${flag policy.gpu} audio=${flag policy.audio}
@@ -212,6 +215,7 @@ pkgs.writeShellScriptBin "waypak-${name}" ''
       --bind-try "$XDG_RUNTIME_DIR/doc/by-app/$app_id" "$XDG_RUNTIME_DIR/doc"
     )
   fi
+  [ -n "$deps_path" ] && path="$deps_path:$path"
   # raw binary first, so in-sandbox self-invocation skips the wrapper
   [ -n "$app_path" ] && path="$app_path:$path"
   opts+=( --setenv PATH "$path" )
