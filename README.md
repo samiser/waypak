@@ -6,27 +6,24 @@ sandbox apps on nixos, enforced by the wayland compositor via
 wrapped packages keep their names and desktop entries, so launching them
 normally runs them sandboxed:
 
-- the compositor withholds privileged wayland protocols via the security context
-- apps can be allowed to talk to dbus (including portals) via xdg-dbus-proxy
-- bwrap gives each app a private persistent home plus whatever paths you bind
+- the compositor withholds privileged wayland protocols from the app
+- xdg-dbus-proxy filters what it can say on the bus, portals included
+- bwrap gives it a private persistent home plus whatever paths you bind
 
 ## requirements
 
 any compositor implementing
-[security-context-v1](https://wayland.app/protocols/security-context-v1)
-enforces the core boundary: wlroots-based ones like sway and kwin withhold their
-privileged protocols from a tagged client.
+[security-context-v1](https://wayland.app/protocols/security-context-v1) (sway,
+kwin, ...) enforces the core boundary by withholding its privileged protocols
+from a tagged client.
 
-what these hardcode is the privileged set, with no way to hand a specific
-protocol back to a specific app. `waylandGlobals` can be used for granular
-capability permissioning on compositors that match on the security context,
-currently [umbriel](https://github.com/noctalia-dev/umbriel) or
-[jay](https://github.com/mahkoh/jay) (whose client rules match on
-`sandbox-app-id`/`sandbox-engine`).
-
-`config.waypak.waylandGrants` lists the re-grants as
-`{ engine, appId, globals }`. `waypak.lib.toUmbrielRules` and
-`waypak.lib.toJayClients` turn that into either compositor's config:
+handing a specific protocol back to a specific app needs a compositor that
+matches rules on the security context, currently
+[umbriel](https://github.com/noctalia-dev/umbriel) or
+[jay](https://github.com/mahkoh/jay). `waylandGlobals` declares the re-grants
+per app, `config.waypak.waylandGrants` collects them as
+`{ engine, appId, globals }`, and `waypak.lib.toUmbrielRules` or
+`waypak.lib.toJayClients` turns that into compositor config:
 
 ```nix
 services.umbriel.settings.security_context_rule =
@@ -52,14 +49,13 @@ waypak.apps = {
 };
 ```
 
-dbus policies (`talk`/`own`) default from `profiles/` by app name, as do
-`commands`. extra entrypoints run inside the app's sandbox (eg. clipse ships a
-`clipse-listener` bin for clipboard watching). PRs welcome!
+dbus policy (`talk`/`own`) and `commands` default from `profiles/` by app name.
+commands are extra entrypoints that run inside the app's sandbox, eg. clipse
+ships a `clipse-listener` bin for clipboard watching.
 
-`waypak.profiles` swaps or extends the bundled set (`{ }` to opt out entirely)
-
-profiles can also be generated from a flatpak manifest's `finish-args` (json
-manifests only):
+`waypak.profiles` swaps or extends the bundled set (`{ }` opts out). profiles
+can also be generated from a flatpak manifest's `finish-args` (json only), and
+since they're plain attrsets you can extend them with waypak's other options:
 
 ```nix
 waypak.profiles = waypak.policies // {
@@ -67,16 +63,11 @@ waypak.profiles = waypak.policies // {
 };
 ```
 
-generated profiles are just attrsets, so you can extend them beyond the
-capabilities flatpak can express into waypak's other options.
+`waypak.wrappedPackages.<name>` is each sandboxed package, for handing to eg.
+`programs.<x>.package`. the original stays reachable as `passthru.unwrapped`,
+and `passthru.waypak` carries the policy, launcher and wayland grant.
 
-`waypak.wrappedPackages.<name>` exposes each sandboxed wrapper for handing to
-other modules (eg. `programs.<x>.package`); the original package stays reachable
-as `passthru.unwrapped`, and `passthru.waypak` carries the evaluated policy, the
-launcher script and the app's wayland grant
-
-the module is a thin layer over `waypak.lib.wrap`, which can be used anywhere
-nix is used:
+the module is a thin layer over `waypak.lib.wrap`:
 
 ```nix
 waypak.lib.wrap {
@@ -89,50 +80,54 @@ waypak.lib.wrap {
 
 ## hardening
 
-- by default, every sandbox gets a seccomp filter using flatpak's seccomp
-  capabilities as a baseline (tty ioctl keystroke injection, ptrace, kernel
-  keyring, mount family). `seccomp = false` disables this, `userns = false`
-  additionally denies nested user namespaces (electron/chromium apps need them
-  for their own sandbox, most others don't)
-- `net = "isolated"` gives the app a private network namespace with internet via
-  [pasta](https://passt.top/). localhost network services and abstract sockets
-  (eg. X11) are unreachable
-- `storeClosure = true` binds only the app's closure instead of all of /nix and
+every sandbox by default:
+
+- unshares all namespaces (`net = true` shares the host network)
+- clears the environment except locale, term, home and xdg session vars
+  (`clearenv = false` inherits everything)
+- gets a seccomp filter based on flatpak's (tty keystroke injection, ptrace,
+  kernel keyring, perf, memory policy). `seccomp = false` disables it,
+  `userns = false` also denies nested user namespaces (electron/chromium apps
+  need them for their own sandbox)
+- sees a cherry-picked /etc, with gpu and audio opt-in
+
+opt-in:
+
+- `net = "isolated"`: private network namespace with internet via
+  [pasta](https://passt.top/). localhost and abstract sockets are unreachable
+- `storeClosure = true`: bind only the app's closure instead of all of /nix and
   /run/current-system
-- `closured = true` launches the app in its own cgroup and asks
-  [closured](https://github.com/samiser/closured) to deny execs outside its
-  closure, so even paths the sandbox can see aren't runnable. if `closured`
-  isn't running it logs a warning and launches anyway
+- `closured = true`: run the app in its own cgroup and have
+  [closured](https://github.com/samiser/closured) deny execs outside its
+  closure, so even paths the sandbox can see aren't runnable. warns and launches
+  anyway if closured isn't running
 
 ## goals
 
-- nixos native sandboxing: wrap the package, keep the name and desktop entry,
-  configure everything from the module
+- nixos native: wrap the package, keep the name and desktop entry, configure
+  everything from the module
 - each app's launcher is one generated shell script with its policy at the top,
-  so `cat` on it shows you exactly what that sandbox does
+  so `cat` on it shows exactly what that sandbox does
 - each layer does one job: the compositor decides what an app can show, the dbus
   proxy what it can say, bwrap what it can see, seccomp what it can call
-- any option can be switched off and you get exactly the behaviour from before
-  it existed
+- any option can be switched off for exactly the behaviour from before it
+  existed
 
 ## non-goals
 
-- x11: there's no security boundary to enforce there, so wayland only
-- deciding what an app is allowed to _execute_. this requires an lsm, so it's
-  delegated to [closured](https://github.com/samiser/closured), which is not
-  required to use waypak
-- as an extension of the previous point, sandboxing should work with nothing
-  else running, so anything that needs a service/daemon is optional
+- x11: there's no security boundary to enforce, so wayland only
+- deciding what an app can _execute_ needs an lsm, so it's delegated to
+  [closured](https://github.com/samiser/closured), which is optional
+- sandboxing works with nothing else running, so anything needing a daemon is
+  optional
 
 ## caveats
 
-- network is shared by default (`net = false` to unshare, `net = "isolated"` for
-  pasta), gpu and audio are opt-in per app, /etc is cherry-picked (not bound
-  directly)
-- apps with portal access see a fake /.flatpak-info, so they may believe they're
+- apps with portal access see a fake /.flatpak-info, so they may think they're
   flatpaks
-- protects against sloppy apps and their plugin/content ecosystems, not targeted
-  malware
+- the threat model is supply chain attacks, a compromised app, plugin or
+  dependency only reaches what its sandbox exposes. it is not a defence against
+  malware built to escape bwrap, the compositor or the kernel
 
 ## credits
 
