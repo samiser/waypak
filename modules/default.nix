@@ -107,6 +107,11 @@ let
         default = profile.closureExtra or [ ];
         description = "extra packages folded into the app's closure for storeClosure and closured";
       };
+      clearenv = lib.mkOption {
+        type = lib.types.bool;
+        default = profile.clearenv or true;
+        description = "clear the environment and pass only a safe allowlist (locale, term, home) so host env-var secrets do not leak into the sandbox";
+      };
       binds = lib.mkOption {
         type = lib.types.listOf lib.types.str;
         default = profile.binds or [ ];

@@ -73,6 +73,7 @@ let
       ''seccomp_file="${seccompFile app}"''
       ''closure_file="${closureFile app}"''
       ''confine_roots="${confineRoots app}"''
+      "clearenv=${flag (app.clearenv or true)}"
     ];
   mkCase = name: app: "  ${name})\n    ${mkPolicy app}\n    ;;\n";
   policyCases = lib.concatStrings (lib.mapAttrsToList mkCase apps ++ [ (mkCase "*" defaultPolicy) ]);
@@ -171,7 +172,9 @@ pkgs.writeShellScriptBin "waypak" ''
   app_home="$HOME/.local/share/waypak/$app_id"
   # a fresh /tmp each launch would break chromium's single-instance socket
   mkdir -p "$app_home" "$app_home/.tmp"
-  opts=(
+  opts=()
+  [ -n "$clearenv" ] && opts+=( --clearenv )
+  opts+=(
     --unshare-all --die-with-parent
     --proc /proc --dev /dev --bind "$app_home/.tmp" /tmp
     --tmpfs "$XDG_RUNTIME_DIR"
@@ -183,6 +186,12 @@ pkgs.writeShellScriptBin "waypak" ''
     --setenv DBUS_SESSION_BUS_ADDRESS "unix:path=$XDG_RUNTIME_DIR/bus"
     --unsetenv DISPLAY --unsetenv UMBRIEL_SOCKET
   )
+  if [ -n "$clearenv" ]; then
+    opts+=( --setenv HOME "$HOME" --setenv XDG_RUNTIME_DIR "$XDG_RUNTIME_DIR" )
+    for v in LANG LANGUAGE LC_ALL LC_CTYPE LC_NUMERIC LC_TIME LC_COLLATE LC_MONETARY LC_MESSAGES LC_PAPER LC_NAME LC_ADDRESS LC_TELEPHONE LC_MEASUREMENT LC_IDENTIFICATION LOCALE_ARCHIVE TERM TZ USER LOGNAME XDG_CURRENT_DESKTOP XDG_SESSION_TYPE XDG_SESSION_DESKTOP; do
+      [ -n "''${!v:-}" ] && opts+=( --setenv "$v" "''${!v}" )
+    done
+  fi
   if [ -n "$closure_file" ]; then
     path="${
       lib.makeBinPath [
