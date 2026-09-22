@@ -49,17 +49,21 @@ waypak.apps = {
 };
 ```
 
-dbus policy (`talk`/`own`) and `commands` default from `profiles/` by app name.
-commands are extra entrypoints that run inside the app's sandbox, eg. clipse
-ships a `clipse-listener` bin for clipboard watching.
+each app is a module over the options in `lib/policy.nix`, layered on the
+profile of the same name from `waypak.profiles`. the bundled profiles carry dbus
+policy (`talk`/`own`) and `commands`, extra entrypoints that run inside the
+app's sandbox, eg. clipse ships a `clipse-listener` bin for clipboard watching.
 
-`waypak.profiles` swaps or extends the bundled set (`{ }` opts out). profiles
-can also be generated from a flatpak manifest's `finish-args` (json only), and
-since they're plain attrsets you can extend them with waypak's other options:
+profiles are modules too, so they can take `pkgs`, and they merge. lists you set
+in an app add to the profile, and overriding a value the profile already sets
+takes `lib.mkForce`. your own profiles merge with the bundled ones,
+`lib.mkForce { }` drops them entirely, and `waypak.lib.fromFlatpakManifest`
+makes one from a flatpak manifest's `finish-args` (json only):
 
 ```nix
-waypak.profiles = waypak.policies // {
+waypak.profiles = {
   spotify = waypak.lib.fromFlatpakManifest ./com.spotify.Client.json;
+  obsidian = { pkgs, ... }: { closureExtra = [ pkgs.pandoc ]; };
 };
 ```
 
@@ -67,7 +71,8 @@ waypak.profiles = waypak.policies // {
 `programs.<x>.package`. the original stays reachable as `passthru.unwrapped`,
 and `passthru.waypak` carries the policy, launcher and wayland grant.
 
-the module is a thin layer over `waypak.lib.wrap`:
+the module is a thin layer over `waypak.lib.wrap`, which takes policy options as
+arguments or as full modules via `modules`:
 
 ```nix
 waypak.lib.wrap {

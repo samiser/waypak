@@ -4,6 +4,7 @@
   engine ? "waypak",
   profiles ? import ../profiles,
   name,
+  modules ? [ ],
   ...
 }@args:
 let
@@ -11,18 +12,28 @@ let
 
   policy =
     (lib.evalModules {
+      prefix = [
+        "waypak"
+        "apps"
+        name
+      ];
+      specialArgs = { inherit pkgs name; };
       modules = [
-        (import ../modules/app.nix { inherit name profiles; })
+        ./policy.nix
+        (profiles.${name} or { })
         {
+          _file = "lib.wrap arguments";
           config = removeAttrs args [
             "pkgs"
             "way-secure"
             "engine"
             "profiles"
             "name"
+            "modules"
           ];
         }
-      ];
+      ]
+      ++ modules;
     }).config;
 
   launcher = import ./launcher.nix { inherit pkgs way-secure engine; } { inherit name policy; };

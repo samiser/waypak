@@ -1,4 +1,4 @@
-{ policies }:
+{ profiles }:
 {
   lib,
   config,
@@ -9,13 +9,11 @@ let
   cfg = config.waypak;
   wrap =
     name: app:
-    import ../lib/wrap.nix (
-      {
-        inherit pkgs name;
-        inherit (cfg) engine profiles;
-      }
-      // removeAttrs app [ "_module" ]
-    );
+    import ../lib/wrap.nix {
+      inherit pkgs name;
+      inherit (cfg) engine profiles;
+      modules = [ app ];
+    };
 in
 {
   options.waypak = {
@@ -26,27 +24,15 @@ in
     };
 
     profiles = lib.mkOption {
-      type = lib.types.attrsOf lib.types.attrs;
-      default = policies;
-      description = "policy defaults applied to `apps` by name; waypak's bundled profiles unless overridden";
+      type = lib.types.attrsOf lib.types.deferredModule;
+      default = { };
+      description = "policy modules applied to `apps` by name, merged with the bundled set";
     };
 
     apps = lib.mkOption {
-      type = lib.types.attrsOf (
-        lib.types.submodule (
-          { name, ... }:
-          {
-            imports = [
-              (import ./app.nix {
-                inherit name;
-                inherit (cfg) profiles;
-              })
-            ];
-          }
-        )
-      );
+      type = lib.types.attrsOf lib.types.deferredModule;
       default = { };
-      description = "apps installed sandboxed (security context + bwrap + filtered dbus); dbus policy defaults come from waypak's bundled profiles when the name matches";
+      description = "apps installed sandboxed, each a policy module layered on the profile of the same name";
     };
 
     wrappedPackages = lib.mkOption {
@@ -68,7 +54,8 @@ in
     };
   };
 
-  config = lib.mkIf (cfg.apps != { }) {
-    environment.systemPackages = lib.attrValues cfg.wrappedPackages;
+  config = {
+    waypak.profiles = profiles;
+    environment.systemPackages = lib.mkIf (cfg.apps != { }) (lib.attrValues cfg.wrappedPackages);
   };
 }

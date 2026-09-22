@@ -14,7 +14,7 @@
       waySecure = pkgs: pkgs.way-secure or (pkgs.callPackage ./pkgs/way-secure.nix { });
     in
     {
-      policies = import ./profiles;
+      profiles = import ./profiles;
 
       lib = {
         wrap = import ./lib/wrap.nix;
@@ -22,7 +22,7 @@
       }
       // import ./lib/compositor-rules.nix { inherit (nixpkgs) lib; };
 
-      nixosModules.default = import ./modules { policies = self.policies; };
+      nixosModules.default = import ./modules { profiles = self.profiles; };
 
       overlays.default = final: _: { way-secure = waySecure final; };
 
@@ -38,7 +38,14 @@
             inherit pkgs;
             name = "hello";
             package = pkgs.hello;
-            commands.greet.cmd = "hello -g hi";
+            profiles.hello =
+              { pkgs, ... }:
+              {
+                commands.greet = {
+                  cmd = "hello -g hi";
+                  deps = [ pkgs.hello ];
+                };
+              };
           };
         in
         {

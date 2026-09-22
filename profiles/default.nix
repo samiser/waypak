@@ -20,17 +20,19 @@
     gpu = true; # screenshare needs dmabuf import
   };
 
-  clipse = {
-    net = false;
-    userns = false; # a go tui has no chromium sandbox to nest
-    storeClosure = true;
-    waylandGlobals = [ "ext_data_control_manager_v1" ];
-    # clipse -listen daemonises, which dies with the sandbox's pid namespace
-    commands.listener = {
-      cmd = "wl-paste --type text --watch clipse --wl-store & wl-paste --type image/png --watch clipse --wl-store & wait";
-      deps = [ "wl-clipboard" ];
+  clipse =
+    { pkgs, ... }:
+    {
+      net = false;
+      userns = false; # a go tui has no chromium sandbox to nest
+      storeClosure = true;
+      waylandGlobals = [ "ext_data_control_manager_v1" ];
+      # clipse -listen daemonises, which dies with the sandbox's pid namespace
+      commands.listener = {
+        cmd = "wl-paste --type text --watch clipse --wl-store & wl-paste --type image/png --watch clipse --wl-store & wait";
+        deps = [ pkgs.wl-clipboard ];
+      };
     };
-  };
 
   obsidian = {
     talk = [

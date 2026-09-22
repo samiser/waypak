@@ -31,7 +31,7 @@ let
     denyUserns = !policy.userns;
   }}";
 
-  commandDeps = map (d: pkgs.${d}) (lib.concatMap (c: c.deps) (lib.attrValues policy.commands));
+  commandDeps = lib.concatMap (c: c.deps) (lib.attrValues policy.commands);
   depsPath = lib.makeBinPath commandDeps;
   closureRoots = [
     policy.package
