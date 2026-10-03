@@ -111,8 +111,8 @@ opt-in:
 
 - nixos native: wrap the package, keep the name and desktop entry, configure
   everything from the module
-- each app's launcher is one generated shell script with its policy at the top,
-  so `cat` on it shows exactly what that sandbox does
+- each app's launcher is one generated shell script holding only the lines its
+  policy asks for, so `cat` on it shows exactly what that sandbox does
 - each layer does one job: the compositor decides what an app can show, the dbus
   proxy what it can say, bwrap what it can see, seccomp what it can call
 - any option can be switched off for exactly the behaviour from before it
