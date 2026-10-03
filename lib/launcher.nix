@@ -27,6 +27,45 @@ let
     denyUserns = !policy.userns;
   };
 
+  flatpakInfo =
+    lib.concatStringsSep "\\n" (
+      [
+        "[Application]"
+        "name=%s"
+        ""
+        "[Instance]"
+        "instance-id=%s"
+      ]
+      ++ lib.optionals (policy.net == true) [
+        ""
+        "[Context]"
+        "shared=network;"
+      ]
+    )
+    + "\\n";
+  bwrapInfo = ''"$instance_dir/bwrapinfo.json"'';
+  cleanupRm = [
+    "rm -f ${
+      toString (
+        [
+          ''"$sock"''
+          ''"$bus_proxy"''
+          ''"$fifo"''
+        ]
+        ++ when portal ''"$flatpak_info"''
+        ++ when isolated ''"$info_fifo" "$block_fifo"''
+      )
+    }"
+  ]
+  ++ when portal ''rm -rf "$instance_dir"'';
+  infoRedirect =
+    if isolated then
+      " 8> \"$info_fifo\" 7<> \"$block_fifo\""
+    else if portal then
+      " 8> ${bwrapInfo}"
+    else
+      "";
+
   proxy = lib.concatStringsSep " \\\n  " (
     lib.optionals portal [
       ''${pkgs.bubblewrap}/bin/bwrap --die-with-parent --ro-bind /nix /nix --bind "$XDG_RUNTIME_DIR" "$XDG_RUNTIME_DIR"''
@@ -123,12 +162,13 @@ let
     ++ map (p: "--bind ${q p} ${q p}") policy.binds
     ++ map (p: "--ro-bind-try ${q p} ${q p}") policy.roBinds
     ++ lib.optionals portal [
-      ''--setenv GTK_USE_PORTAL 1 --setenv FLATPAK_ID "$app_id"''
+      ''--setenv GTK_USE_PORTAL 1 --setenv FLATPAK_ID "$flatpak_id"''
       ''--ro-bind "$flatpak_info" /.flatpak-info''
-      ''--bind-try "$XDG_RUNTIME_DIR/doc/by-app/$app_id" "$XDG_RUNTIME_DIR/doc"''
+      ''--bind-try "$XDG_RUNTIME_DIR/doc/by-app/$flatpak_id" "$XDG_RUNTIME_DIR/doc"''
     ]
     ++ when policy.seccomp "--seccomp 9"
-    ++ when isolated "--info-fd 8 --block-fd 7"
+    ++ when (portal || isolated) "--info-fd 8"
+    ++ when isolated "--block-fd 7"
   );
 
   script = lib.flatten [
@@ -141,7 +181,9 @@ let
       fifo=$(${pkgs.coreutils}/bin/mktemp -u)
     ''
     (when portal ''
+      flatpak_id=${lib.escapeShellArg "org.waypak.${name}"}
       flatpak_info="$XDG_RUNTIME_DIR/waypak-info-$app_id-$$"
+      instance_dir="$XDG_RUNTIME_DIR/.flatpak/$app_id-$$"
     '')
     (when isolated ''
       info_fifo=$(${pkgs.coreutils}/bin/mktemp -u)
@@ -151,17 +193,7 @@ let
 
       cleanup() {
         kill ''${app_pid:-} ''${ws_pid:-} ''${proxy_pid:-} 2>/dev/null || true
-        rm -f ${
-          toString (
-            [
-              ''"$sock"''
-              ''"$bus_proxy"''
-              ''"$fifo"''
-            ]
-            ++ when portal ''"$flatpak_info"''
-            ++ when isolated ''"$info_fifo" "$block_fifo"''
-          )
-        }
+        ${lib.concatStringsSep "\n  " cleanupRm}
       }
       trap cleanup EXIT INT TERM
 
@@ -185,8 +217,8 @@ let
     ''
     (when portal ''
 
-      printf '[Application]\nname=%s\n\n[Instance]\ninstance-id=%s\n' \
-        "$app_id" "$app_id-$$" > "$flatpak_info"
+      printf '${flatpakInfo}' "$flatpak_id" "$app_id-$$" > "$flatpak_info"
+      mkdir -p "$instance_dir"
     '')
     ''
 
@@ -244,11 +276,16 @@ let
       )
     '')
     ''
-      "''${launch[@]}" "$@"${lib.optionalString isolated " 8> \"$info_fifo\" 7<> \"$block_fifo\""} &
+      "''${launch[@]}" "$@"${infoRedirect} &
       app_pid=$!
     ''
+    (when (isolated && portal) ''
+      ${pkgs.coreutils}/bin/cat "$info_fifo" > ${bwrapInfo}
+    '')
     (when isolated ''
-      child_pid=$(${pkgs.gnused}/bin/sed -n 's/.*"child-pid": *\([0-9]*\).*/\1/p' "$info_fifo")
+      child_pid=$(${pkgs.gnused}/bin/sed -n 's/.*"child-pid": *\([0-9]*\).*/\1/p' ${
+        if portal then bwrapInfo else ''"$info_fifo"''
+      })
       [ -n "$child_pid" ] || {
         echo "waypak: bwrap reported no child pid" >&2
         exit 1
